@@ -1,0 +1,15 @@
+# PyCache
+__pycache__/
+*.pyc
+
+# Engine runtime counter
+engine/run_counter.txt
+
+# Shared runtime files (optional; keep structure but ignore content)
+shared/state.json
+shared/jobs.jsonl
+shared/results.jsonl
+shared/market/listings.jsonl
+shared/market/transactions.jsonl
+shared/ownership/*.json
+shared/reports/*.json

@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blackbox Tournament Monitor</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent2: #34d399;
+      --danger: #f87171;
+      --warn: #fbbf24;
+      --border: #334155;
+      --green: #22c55e;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      line-height: 1.5;
+    }
+    h1 { font-size: 1.8rem; margin-bottom: 10px; color: var(--accent); }
+    .subtitle { color: var(--muted); margin-bottom: 24px; font-size: 0.95rem; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      overflow: hidden;
+    }
+    .panel h2 {
+      font-size: 1.1rem;
+      margin-bottom: 12px;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-live { background: var(--green); color: #fff; }
+    .badge-off { background: var(--danger); color: #fff; }
+    .badge-valid { background: var(--green); color: #fff; }
+    .badge-invalid { background: var(--red); color: #fff; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.6px; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(56, 189, 248, 0.06); }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    .mono { font-family: 'Courier New', Courier, monospace; font-size: 0.88rem; }
+    .scroll { max-height: 320px; overflow-y: auto; }
+    .empty { color: var(--muted); font-style: italic; padding: 12px 0; }
+    .stat-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { color: var(--muted); }
+    .bar-bg { background: rgba(255,255,255,0.06); height: 8px; border-radius: 4px; margin-top: 6px; }
+    .bar-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width 0.4s ease; }
+    .row-valid { color: var(--green); }
+    .row-invalid { color: var(--red); }
+    .footer { text-align: center; color: var(--muted); font-size: 0.82rem; margin-top: 10px; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--panel); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .collapsible-content { display: none; margin-top: 8px; }
+    .collapsible-toggle { cursor: pointer; color: var(--accent); font-size: 0.85rem; margin-top: 8px; display: inline-block; }
+    .collapsible-toggle:hover { text-decoration: underline; }
+    .claim-tag { display: inline-block; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin: 2px; background: rgba(56,189,248,0.15); color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>⚡ Blackbox Multi-LLM Tournament Monitor</h1>
+  <p class="subtitle">Live dashboard for the causal-discovery competition. Auto-refreshes every 2 seconds.</p>
+
+  <div class="grid">
+    <!-- Global state -->
+    <div class="panel">
+      <h2>🌐 Global State <span id="live-badge" class="badge badge-off">Offline</span></h2>
+      <div class="stat-row"><span class="stat-label">Tick</span><span id="state-tick" class="mono">—</span></div>
+      <div class="stat-row"><span class="stat-label">Active Players</span><span id="state-players" class="mono">—</span></div>
+      <div class="stat-row"><span class="stat-label">Pending Jobs</span><span id="state-jobs" class="mono">—</span></div>
+      <div class="stat-row"><span class="stat-label">Total Results</span><span id="state-results" class="mono">—</span></div>
+      <div class="stat-row"><span class="stat-label">Active Listings</span><span id="state-listings" class="mono">—</span></div>
+      <div class="stat-row"><span class="stat-label">Transactions</span><span id="state-transactions" class="mono">—</span></div>
+    </div>
+
+    <!-- Leaderboard -->
+    <div class="panel">
+      <h2>🏆 Leaderboard</h2>
+      <div id="leaderboard-container"><p class="empty">No players yet.</p></div>
+    </div>
+
+    <!-- Recent experiment results -->
+    <div class="panel">
+      <h2>🔬 Recent Experiments (last 20)</h2>
+      <div class="scroll" id="results-container"><p class="empty">No experiments yet.</p></div>
+    </div>
+
+    <!-- Market listings -->
+    <div class="panel">
+      <h2>🏪 Market Listings</h2>
+      <div class="scroll" id="listings-container"><p class="empty">No listings yet.</p></div>
+    </div>
+
+    <!-- Recent transactions -->
+    <div class="panel">
+      <h2>💰 Recent Transactions</h2>
+      <div class="scroll" id="transactions-container"><p class="empty">No transactions yet.</p></div>
+    </div>
+
+    <!-- Pending jobs -->
+    <div class="panel">
+      <h2>📋 Pending Jobs</h2>
+      <div class="scroll" id="jobs-container"><p class="empty">No pending jobs.</p></div>
+    </div>
+
+    <!-- Theories / Reports in Market -->
+    <div class="panel" style="grid-column: 1 / -1;">
+      <h2>📜 Theories & Reports in the Market</h2>
+      <div id="reports-container"><p class="empty">No reports yet.</p></div>
+    </div>
+  </div>
+
+  <p class="footer">Connect this page to the same host that serves the /shared/ JSON files, or adjust the fetchBase path.</p>
+
+  <script>
+    // ─── CONFIG ──────────────────────────────────────────────
+    // If you open index.html directly on the same machine as the game,
+    // use empty string (relative). If the files are served elsewhere,
+    // set this to the base URL, e.g., "http://localhost:8000/shared"
+    const fetchBase = "./shared";
+    const REFRESH_MS = 2000;
+
+    // ─── HELPERS ─────────────────────────────────────────────
+    async function fetchJsonl(path) {
+      try {
+        const res = await fetch(path, { cache: "no-store" });
+        if (!res.ok) return [];
+        const text = await res.text();
+        return text.trim().split("\n").filter(l => l.trim()).map(l => JSON.parse(l));
+      } catch (e) { return []; }
+    }
+    async function fetchJson(path) {
+      try {
+        const res = await fetch(path, { cache: "no-store" });
+        if (!res.ok) return null;
+        return await res.json();
+      } catch (e) { return null; }
+    }
+    function fmtNum(n, d = 3) { return typeof n === "number" ? n.toFixed(d) : "—"; }
+    function timeAgo(ts) {
+      const diff = (Date.now() / 1000) - ts;
+      if (diff < 60) return `${Math.floor(diff)}s ago`;
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      return `${Math.floor(diff / 3600)}h ago`;
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // ─── RENDERERS ───────────────────────────────────────────
+    function renderLeaderboard(players) {
+      const container = document.getElementById("leaderboard-container");
+      const names = Object.keys(players);
+      if (!names.length) { container.innerHTML = '<p class="empty">No players yet.</p>'; return; }
+      const maxScore = Math.max(...names.map(n => players[n].total_score || 0), 0.001);
+      let html = `<table>
+        <thead><tr><th>Rank</th><th>Agent</th><th class="right">Energy</th><th class="right">Exp Score</th><th class="right">Market Profit</th><th class="right">Know Score</th><th class="right">Total</th></tr></thead>
+        <tbody>`;
+      let idx = 1;
+      for (const name of names.sort((a, b) => (players[b].total_score || 0) - (players[a].total_score || 0))) {
+        const p = players[name];
+        const pct = ((p.total_score || 0) / maxScore) * 100;
+        html += `<tr>
+          <td class="center">${idx++}</td>
+          <td><strong>${escapeHtml(name)}</strong></td>
+          <td class="right mono">${fmtNum(p.energy, 1)}</td>
+          <td class="right mono">${fmtNum(p.experiment_score, 2)}</td>
+          <td class="right mono">${fmtNum(p.market_profit, 2)}</td>
+          <td class="right mono">${fmtNum(p.knowledge_score, 2)}</td>
+          <td class="right mono"><strong>${fmtNum(p.total_score, 2)}</strong></td>
+        </tr>
+        <tr><td colspan="7" style="padding:0;border:none;"><div class="bar-bg"><div class="bar-fill" style="width:${pct.toFixed(1)}%;"></div></div></td></tr>`;
+      }
+      html += "</tbody></table>";
+      container.innerHTML = html;
+    }
+
+    function renderResults(results) {
+      const container = document.getElementById("results-container");
+      if (!results.length) { container.innerHTML = '<p class="empty">No experiments yet.</p>'; return; }
+      const runs = results.filter(r => r.type === "run" && r.ok).slice(-20).reverse();
+      if (!runs.length) { container.innerHTML = '<p class="empty">No successful experiments yet.</p>'; return; }
+      let html = `<table>
+        <thead><tr><th>Player</th><th>Power</th><th>Vibration</th><th>Efficiency</th><th>Heat Loss</th><th>Score</th></tr></thead>
+        <tbody>`;
+      for (const r of runs) {
+        html += `<tr>
+          <td>${escapeHtml(r.player)}</td>
+          <td class="mono">${fmtNum(r.outputs?.power_output, 3)}</td>
+          <td class="mono">${fmtNum(r.outputs?.vibration, 3)}</td>
+          <td class="mono">${fmtNum(r.outputs?.efficiency, 3)}</td>
+          <td class="mono">${fmtNum(r.outputs?.heat_loss, 3)}</td>
+          <td class="mono">${fmtNum(r.score, 3)}</td>
+        </tr>`;
+      }
+      html += "</tbody></table>";
+      container.innerHTML = html;
+    }
+
+    function renderListings(listings) {
+      const container = document.getElementById("listings-container");
+      const active = listings.filter(l => l.active).sort((a, b) => (b.price || 0) - (a.price || 0));
+      if (!active.length) { container.innerHTML = '<p class="empty">No active listings.</p>'; return; }
+      let html = `<table>
+        <thead><tr><th>Report ID</th><th>Seller</th><th class="right">Price (energy)</th><th>Listed</th></tr></thead>
+        <tbody>`;
+      for (const l of active) {
+        html += `<tr>
+          <td class="mono">${l.report_id}</td>
+          <td>${escapeHtml(l.seller)}</td>
+          <td class="right mono">${fmtNum(l.price, 1)}</td>
+          <td>${timeAgo(l.timestamp)}</td>
+        </tr>`;
+      }
+      html += "</tbody></table>";
+      container.innerHTML = html;
+    }
+
+    function renderTransactions(transactions) {
+      const container = document.getElementById("transactions-container");
+      if (!transactions.length) { container.innerHTML = '<p class="empty">No transactions yet.</p>'; return; }
+      const recent = transactions.slice(-30).reverse();
+      let html = `<table>
+        <thead><tr><th>Buyer</th><th>Seller</th><th>Report ID</th><th class="right">Price</th><th>Time</th></tr></thead>
+        <tbody>`;
+      for (const t of recent) {
+        html += `<tr>
+          <td>${escapeHtml(t.buyer)}</td>
+          <td>${escapeHtml(t.seller)}</td>
+          <td class="mono">${t.report_id}</td>
+          <td class="right mono">${fmtNum(t.price, 1)}</td>
+          <td>${timeAgo(t.time)}</td>
+        </tr>`;
+      }
+      html += "</tbody></table>";
+      container.innerHTML = html;
+    }
+
+    function renderJobs(jobs) {
+      const container = document.getElementById("jobs-container");
+      if (!jobs.length) { container.innerHTML = '<p class="empty">No pending jobs.</p>'; return; }
+      let html = `<table>
+        <thead><tr><th>Type</th><th>Player</th><th>Details</th></tr></thead>
+        <tbody>`;
+      for (const j of jobs) {
+        let detail = "";
+        if (j.type === "run") detail = JSON.stringify(j.inputs || {}).substring(0, 60) + "...";
+        else if (j.type === "list_report" || j.type === "buy_report" || j.type === "update_price") detail = `report ${j.report_id} @ ${j.price ?? "—"}`;
+        else if (j.type === "create_report") detail = `report ${j.report?.id ?? "—"}`;
+        html += `<tr>
+          <td><span class="badge badge-live">${escapeHtml(j.type)}</span></td>
+          <td>${escapeHtml(j.player)}</td>
+          <td class="mono" style="font-size:0.82rem;">${escapeHtml(detail)}</td>
+        </tr>`;
+      }
+      html += "</tbody></table>";
+      container.innerHTML = html;
+    }
+
+    // Evaluate claims using the ground truth logic embedded here.
+    // This mirrors game/claims.py TRUE_RELATIONS for client-side validation display.
+    const TRUE_RELATIONS = {
+      interaction: [
+        ["P","T","positive"],["P","T","sinusoidal"],["VA","VB","positive"],
+        ["VB","VC","negative"],["VA","VC","positive"],["F","T","positive"],["VB","C","negative"]
+      ],
+      monotonic: [
+        ["P","power_output","positive"],["VA","valve_term","positive"],["VB","valve_term","positive"],
+        ["VC","valve_term","positive"],["T","heat_loss","positive"],["L","heat_loss","positive"],["C","vibration","negative"]
+      ],
+      threshold: [
+        ["T","power_output",0.3,0.7],["tau","power_output",0.2,0.4],["tau","power_output",0.7,0.9],
+        ["L","power_output",0.0,0.3],["L","power_output",0.8,1.0],["C","power_output",0.4,0.7]
+      ],
+      independence: [
+        ["P","heat_loss"],["F","heat_loss"],["C","heat_loss"]
+      ]
+    };
+    function checkClaim(c) {
+      const t = c.type;
+      if (t === "interaction") {
+        for (const [v1,v2,d] of TRUE_RELATIONS.interaction) if ((v1===c.var1&&v2===c.var2)||(v1===c.var2&&v2===c.var1)) return d===c.direction;
+      } else if (t === "monotonic") {
+        for (const [v,tr,d] of TRUE_RELATIONS.monotonic) if (v===c.var && tr===c.target) return d===c.direction;
+      } else if (t === "threshold") {
+        for (const [v,tr,l,h] of TRUE_RELATIONS.threshold) if (v===c.var && tr===c.target && l===c.low && h===c.high) return true;
+      } else if (t === "independence") {
+        for (const [v,tr] of TRUE_RELATIONS.independence) if (v===c.var && tr===c.target) return true;
+      }
+      return false;
+    }
+
+    async function renderReports(listings, transactions) {
+      const container = document.getElementById("reports-container");
+      const reportIds = new Set();
+      listings.forEach(l => reportIds.add(l.report_id));
+      transactions.forEach(t => reportIds.add(t.report_id));
+      if (!reportIds.size) { container.innerHTML = '<p class="empty">No reports discovered yet.</p>'; return; }
+
+      const reports = [];
+      for (const rid of reportIds) {
+        const r = await fetchJson(`${fetchBase}/reports/report_${rid}.json`);
+        if (r) reports.push(r);
+      }
+      if (!reports.length) { container.innerHTML = '<p class="empty">No report files available.</p>'; return; }
+
+      reports.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      let html = `<table>
+        <thead><tr><th>ID</th><th>Creator</th><th>Summary</th><th>Confidence</th><th>Claims Valid / Total</th><th>Precision</th><th>Status</th></tr></thead>
+        <tbody>`;
+      for (const r of reports) {
+        const claims = r.claims || [];
+        let valid = 0;
+        let claimTags = "";
+        for (const c of claims) {
+          const ok = checkClaim(c);
+          if (ok) valid++;
+          claimTags += `<span class="claim-tag" style="background:${ok?'rgba(34,197,94,0.15);color:#22c55e':'rgba(239,68,68,0.15);color:#ef4444'}">${escapeHtml(c.type)} ${ok?'✔':'✘'}</span>`;
+        }
+        const precision = claims.length ? (valid / claims.length) : 0;
+        const isListed = listings.some(l => l.report_id === r.id && l.active);
+        const soldCount = transactions.filter(t => t.report_id === r.id).length;
+        html += `<tr>
+          <td class="mono">${r.id}</td>
+          <td>${escapeHtml(r.creator)}</td>
+          <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.summary||'')}">${escapeHtml(r.summary || "—")}</td>
+          <td class="center mono">${fmtNum(r.confidence, 2)}</td>
+          <td class="center mono">${valid} / ${claims.length}</td>
+          <td class="center mono" style="color:${precision>=0.8?'var(--green)':precision>=0.5?'var(--warn)':'var(--red)'};">${fmtNum(precision, 2)}</td>
+          <td class="center">
+            ${isListed ? '<span class="badge badge-valid">Listed</span>' : '<span class="badge badge-invalid">Not Listed</span>'}
+            ${soldCount ? `<span style="font-size:0.75rem;color:var(--muted);">sold ${soldCount}x</span>` : ""}
+          </td>
+        </tr>
+        <tr><td colspan="7" style="border:none;padding-top:2px;padding-bottom:10px;">${claimTags}</td></tr>`;
+      }
+      html += "</tbody></table>";
+      container.innerHTML = html;
+    }
+
+    // ─── MAIN LOOP ───────────────────────────────────────────
+    async function tick() {
+      const [state, jobs, results, listings, transactions] = await Promise.all([
+        fetchJson(`${fetchBase}/state.json`),
+        fetchJsonl(`${fetchBase}/jobs.jsonl`),
+        fetchJsonl(`${fetchBase}/results.jsonl`),
+        fetchJsonl(`${fetchBase}/market/listings.jsonl`),
+        fetchJsonl(`${fetchBase}/market/transactions.jsonl`),
+      ]);
+
+      const badge = document.getElementById("live-badge");
+      if (state) {
+        badge.textContent = "LIVE"; badge.className = "badge badge-live";
+      } else {
+        badge.textContent = "OFFLINE"; badge.className = "badge badge-off";
+      }
+
+      const players = state?.players || {};
+      document.getElementById("state-tick").textContent = state?.tick ?? "—";
+      document.getElementById("state-players").textContent = Object.keys(players).length;
+      document.getElementById("state-jobs").textContent = jobs.length;
+      document.getElementById("state-results").textContent = results.length;
+      document.getElementById("state-listings").textContent = listings.filter(l => l.active).length;
+      document.getElementById("state-transactions").textContent = transactions.length;
+
+      renderLeaderboard(players);
+      renderResults(results);
+      renderListings(listings);
+      renderTransactions(transactions);
+      renderJobs(jobs);
+      await renderReports(listings, transactions);
+    }
+
+    tick();
+    setInterval(tick, REFRESH_MS);
+  </script>
+</body>
+</html>
