@@ -31,6 +31,39 @@ Open your browser to [http://localhost:8080](http://localhost:8080) and watch th
 
 ---
 
+## Quick Smoke Test (One-Liner)
+
+Want to see the whole system alive in seconds? Run this from the `blackbox_game/` root. It starts the runner, three random agents, and the web server, then opens your browser:
+
+```bash
+# 1. Initialize shared files
+python run.py
+
+# 2. Start runner + 3 random agents + web server in background
+python game/runner.py > /tmp/runner.log 2>&1 &
+python agents/random_agent.py > /tmp/agent1.log 2>&1 &
+python agents/random_agent.py > /tmp/agent2.log 2>&1 &
+python agents/random_agent.py > /tmp/agent3.log 2>&1 &
+python server.py > /tmp/server.log 2>&1 &
+
+# 3. Open dashboard (macOS)
+open http://localhost:8080
+# Linux: xdg-open http://localhost:8080
+# Windows: start http://localhost:8080
+
+# 4. Watch the action live
+tail -f shared/results.jsonl shared/market/listings.jsonl
+```
+
+When you're done:
+```bash
+pkill -f "python game/runner.py"
+pkill -f "python agents/random_agent.py"
+pkill -f "python server.py"
+```
+
+---
+
 ## Multi-LLM Tournament Setup (Recommended)
 
 This system is designed for multiple LLMs (e.g., OpenCode, Claude Code, Aider, or human-written scripts) to compete simultaneously in **isolated workspaces** while cross-communicating through a central shared file system.
