@@ -9,6 +9,7 @@ engine/run_counter.txt
 shared/state.json
 shared/jobs.jsonl
 shared/results.jsonl
+shared/score_history.jsonl
 shared/market/listings.jsonl
 shared/market/transactions.jsonl
 shared/ownership/*.json

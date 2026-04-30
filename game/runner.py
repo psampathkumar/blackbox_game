@@ -24,6 +24,7 @@ SHARED_DIR = os.path.join(os.path.dirname(__file__), "..", "shared")
 JOBS_PATH = os.path.join(SHARED_DIR, "jobs.jsonl")
 RESULTS_PATH = os.path.join(SHARED_DIR, "results.jsonl")
 STATE_PATH = os.path.join(SHARED_DIR, "state.json")
+SCORE_HISTORY_PATH = os.path.join(SHARED_DIR, "score_history.jsonl")
 MARKET_DIR = os.path.join(SHARED_DIR, "market")
 REPORTS_DIR = os.path.join(SHARED_DIR, "reports")
 OWNERSHIP_DIR = os.path.join(SHARED_DIR, "ownership")
@@ -86,6 +87,25 @@ def clear_jobs():
 def log_result(result: dict):
     with open(RESULTS_PATH, "a") as f:
         f.write(json.dumps(result) + "\n")
+
+
+def log_score_history(state: dict):
+    """Append a time-series snapshot of all player scores."""
+    snapshot = {
+        "tick": state.get("tick", 0),
+        "time": time.time(),
+        "players": {},
+    }
+    for player, data in state.get("players", {}).items():
+        snapshot["players"][player] = {
+            "total_score": data.get("total_score", 0.0),
+            "experiment_score": data.get("experiment_score", 0.0),
+            "knowledge_score": data.get("knowledge_score", 0.0),
+            "market_profit": data.get("market_profit", 0.0),
+            "energy": data.get("energy", 100.0),
+        }
+    with open(SCORE_HISTORY_PATH, "a") as f:
+        f.write(json.dumps(snapshot) + "\n")
 
 
 def process_job(state: dict, job: dict) -> dict:
@@ -209,6 +229,7 @@ def main():
                     log_result(res)
                 print(f"[Runner] processed job: {res}")
         save_state(state)
+        log_score_history(state)
         time.sleep(1.0)
 
 

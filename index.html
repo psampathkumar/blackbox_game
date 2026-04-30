@@ -140,6 +140,15 @@
       <h2>📜 Theories & Reports in the Market</h2>
       <div id="reports-container"><p class="empty">No reports yet.</p></div>
     </div>
+
+    <!-- Score History Time-Series Chart (full width) -->
+    <div class="panel" style="grid-column: 1 / -1;">
+      <h2>📈 Score History</h2>
+      <div id="score-chart-container" style="position:relative;min-height:320px;">
+        <svg id="score-chart" width="100%" height="320" style="background:rgba(255,255,255,0.02);border-radius:8px;"></svg>
+        <div id="score-legend" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;"></div>
+      </div>
+    </div>
   </div>
 
   <p class="footer">Connect this page to the same host that serves the /shared/ JSON files, or adjust the fetchBase path.</p>
@@ -408,6 +417,151 @@
 
     tick();
     setInterval(tick, REFRESH_MS);
+
+    // ─── SCORE CHART ─────────────────────────────────────────
+    const scoreSeries = {}; // agent -> [ {tick, total, experiment, knowledge, market, energy} ]
+    const MAX_HISTORY_POINTS = 120; // ~4 minutes at 1 tick/sec
+
+    async function loadScoreHistory() {
+      // Merge live state into series
+      const state = await fetchJson(`${fetchBase}/state.json`);
+      const players = state?.players || {};
+      const tickVal = state?.tick || 0;
+      for (const [name, stats] of Object.entries(players)) {
+        if (!scoreSeries[name]) scoreSeries[name] = [];
+        const s = scoreSeries[name];
+        // avoid duplicate ticks
+        if (s.length && s[s.length - 1].tick === tickVal) continue;
+        s.push({
+          tick: tickVal,
+          total: stats.total_score || 0,
+          experiment: stats.experiment_score || 0,
+          knowledge: stats.knowledge_score || 0,
+          market: stats.market_profit || 0,
+          energy: stats.energy || 0,
+        });
+        if (s.length > MAX_HISTORY_POINTS) s.shift();
+      }
+      // Also absorb historic snapshots from score_history.jsonl (useful on page load)
+      const historic = await fetchJsonl(`${fetchBase}/score_history.jsonl`);
+      historic.forEach(h => {
+        const t = h.tick || 0;
+        for (const [name, stats] of Object.entries(h.players || {})) {
+          if (!scoreSeries[name]) scoreSeries[name] = [];
+          const s = scoreSeries[name];
+          if (s.length && s[s.length - 1].tick === t) continue;
+          s.push({ tick: t, total: stats.total_score || 0, experiment: stats.experiment_score || 0,
+            knowledge: stats.knowledge_score || 0, market: stats.market_profit || 0, energy: stats.energy || 0 });
+          if (s.length > MAX_HISTORY_POINTS) s.shift();
+        }
+      });
+    }
+
+    function renderScoreChart() {
+      const svg = document.getElementById("score-chart");
+      const legend = document.getElementById("score-legend");
+      if (!svg) return;
+      const width = svg.clientWidth || 800;
+      const height = 320;
+      const pad = { top: 20, right: 20, bottom: 40, left: 50 };
+      const W = width - pad.left - pad.right;
+      const H = height - pad.top - pad.bottom;
+
+      const names = Object.keys(scoreSeries).filter(n => scoreSeries[n].length >= 1);
+      if (names.length === 0) {
+        svg.innerHTML = '<text x="' + width/2 + '" y="' + height/2 + '" text-anchor="middle" fill="var(--muted)" font-size="14">Waiting for score data...</text>';
+        return;
+      }
+
+      // Which metric? default total_score
+      let metric = window._chartMetric || "total";
+
+      // Collect all values to find min/max
+      let allVals = [];
+      for (const s of Object.values(scoreSeries)) {
+        for (const p of s) allVals.push(p[metric]);
+      }
+      if (allVals.length === 0) return;
+      let minV = Math.min(...allVals);
+      let maxV = Math.max(...allVals);
+      if (minV === maxV) { minV -= 1; maxV += 1; }
+      const yScale = v => pad.top + H - ((v - minV) / (maxV - minV)) * H;
+      const xScale = v => pad.left + ((v) * (W / Math.max(W,1)));
+
+      // Determine global x range
+      let minTick = Infinity, maxTick = -Infinity;
+      for (const s of Object.values(scoreSeries)) {
+        if (!s.length) continue;
+        minTick = Math.min(minTick, s[0].tick);
+        maxTick = Math.max(maxTick, s[s.length - 1].tick);
+      }
+      if (minTick === maxTick) { minTick -= 1; maxTick += 1; }
+      const xNorm = t => pad.left + ((t - minTick) / (maxTick - minTick)) * W;
+
+      const colorPalette = ["#38bdf8","#34d399","#f87171","#fbbf24","#a78bfa","#f472b6","#22d3ee","#fb923c","#a3e635","#e879f9"];
+      const getColor = (idx) => colorPalette[idx % colorPalette.length];
+
+      let html = '';
+      // Grid lines
+      for (let i=0;i<=5;i++) {
+        const y = pad.top + (H * i / 5);
+        const val = maxV - (maxV - minV) * (i / 5);
+        html += `<line x1="${pad.left}" y1="${y}" x2="${pad.left+W}" y2="${y}" stroke="var(--border)" stroke-dasharray="3,3" opacity="0.5"/>`;
+        html += `<text x="${pad.left-8}" y="${y+4}" text-anchor="end" fill="var(--muted)" font-size="11">${val.toFixed(1)}</text>`;
+      }
+      for (let i=0;i<=4;i++) {
+        const x = pad.left + (W * i / 4);
+        html += `<line x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top+H}" stroke="var(--border)" stroke-dasharray="3,3" opacity="0.3"/>`;
+        html += `<text x="${x}" y="${pad.top+H+16}" text-anchor="middle" fill="var(--muted)" font-size="11">t=${Math.round(minTick + (maxTick-minTick)*(i/4))}</text>`;
+      }
+
+      // Build hidden agents set
+      if (!window._hiddenAgents) window._hiddenAgents = new Set();
+      let legendHtml = '';
+      const metrics = [
+        {k:"total",label:"Total"},{k:"experiment",label:"Experiment"},{k:"knowledge",label:"Knowledge"},
+        {k:"market",label:"Market"},{k:"energy",label:"Energy"}
+      ];
+      legendHtml += `<span style="color:var(--muted);font-size:0.85rem;margin-right:8px;">Metric:</span>`;
+      for (const m of metrics) {
+        legendHtml += `<span class="badge ${metric===m.k?'badge-valid':'badge-off'}" style="cursor:pointer;" onclick="window._chartMetric='${m.k}';renderScoreChart();">${m.label}</span>`;
+      }
+      legendHtml += `<span style="width:1px;background:var(--border);margin:0 8px;"></span>`;
+
+      names.sort().forEach((name, idx) => {
+        const hidden = window._hiddenAgents.has(name);
+        legendHtml += `<span class="badge ${hidden?'badge-off':'badge-valid'}" style="cursor:pointer;background:${hidden?'var(--border)':getColor(idx)};" onclick="(window._hiddenAgents.has('${name}')?window._hiddenAgents.delete('${name}'):window._hiddenAgents.add('${name}'));renderScoreChart();">${escapeHtml(name)}</span>`;
+      });
+      legend.innerHTML = legendHtml;
+
+      // Draw lines
+      names.forEach((name, idx) => {
+        if (window._hiddenAgents.has(name)) return;
+        const s = scoreSeries[name];
+        if (s.length < 2) return;
+        let d = `M${xNorm(s[0].tick)} ${yScale(s[0][metric])}`;
+        for (let i=1;i<s.length;i++) {
+          d += ` L${xNorm(s[i].tick)} ${yScale(s[i][metric])}`;
+        }
+        html += `<path d="${d}" fill="none" stroke="${getColor(idx)}" stroke-width="2" opacity="0.9"/>`;
+        // Draw latest dot
+        const last = s[s.length-1];
+        html += `<circle cx="${xNorm(last.tick)}" cy="${yScale(last[metric])}" r="4" fill="${getColor(idx)}" stroke="var(--bg)" stroke-width="2"/>`;
+      });
+
+      // Axis labels
+      html += `<text x="${pad.left+W/2}" y="${height-4}" text-anchor="middle" fill="var(--muted)" font-size="12">Tick</text>`;
+      html += `<text x="12" y="${pad.top+H/2}" text-anchor="middle" fill="var(--muted)" font-size="12" transform="rotate(-90 12 ${pad.top+H/2})">Score</text>`;
+
+      svg.innerHTML = html;
+    }
+
+    // Hook chart into main loop
+    setInterval(async () => {
+      await loadScoreHistory();
+      renderScoreChart();
+    }, REFRESH_MS);
+
   </script>
 </body>
 </html>
