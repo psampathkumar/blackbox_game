@@ -234,13 +234,15 @@
       const active = listings.filter(l => l.active).sort((a, b) => (b.price || 0) - (a.price || 0));
       if (!active.length) { container.innerHTML = '<p class="empty">No active listings.</p>'; return; }
       let html = `<table>
-        <thead><tr><th>Report ID</th><th>Seller</th><th class="right">Price (energy)</th><th>Listed</th></tr></thead>
+        <thead><tr><th>Report ID</th><th>Seller</th><th class="right">Price</th><th>Buys</th><th>Listed</th></tr></thead>
         <tbody>`;
       for (const l of active) {
+        const buys = l.buy_count || 0;
         html += `<tr>
           <td class="mono">${l.report_id}</td>
           <td>${escapeHtml(l.seller)}</td>
           <td class="right mono">${fmtNum(l.price, 1)}</td>
+          <td class="center">${buys}</td>
           <td>${timeAgo(l.timestamp)}</td>
         </tr>`;
       }
@@ -359,10 +361,10 @@
           <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.summary||'')}">${escapeHtml(r.summary || "—")}</td>
           <td class="center mono">${fmtNum(r.confidence, 2)}</td>
           <td class="center mono">${valid} / ${claims.length}</td>
-          <td class="center mono" style="color:${precision>=0.8?'var(--green)':precision>=0.5?'var(--warn)':'var(--red)'};">${fmtNum(precision, 2)}</td>
+          <td class="center mono" style="color:${precision>=0.8?'var(--green)':precision>=0.5?'var(--warn)':'var(--red)'}">${fmtNum(precision, 2)}</td>
           <td class="center">
             ${isListed ? '<span class="badge badge-valid">Listed</span>' : '<span class="badge badge-invalid">Not Listed</span>'}
-            ${soldCount ? `<span style="font-size:0.75rem;color:var(--muted);">sold ${soldCount}x</span>` : ""}
+            ${soldCount ? `<span style="font-size:0.75rem;color:var(--muted);">bought ${soldCount}x</span>` : ""}
           </td>
         </tr>
         <tr><td colspan="7" style="border:none;padding-top:2px;padding-bottom:10px;">${claimTags}</td></tr>`;

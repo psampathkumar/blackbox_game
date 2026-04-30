@@ -1,8 +1,10 @@
 """
 Market system for continuous-time trading of knowledge reports.
-- Reports sold as copies (seller keeps ownership)
-- Buyer pays energy, seller gains energy
-- Supports relisting, price updates, multiple buyers
+- Listings are permanent: only the report creator can list it.
+- Buying grants read access (adds to buyer's ownership) but does NOT
+  allow the buyer to resell — only the original creator can list.
+- Listings never deactivate; they remain available for purchase forever.
+- buy_count tracked so the dashboard can show how useful a listing is.
 """
 
 import json
@@ -16,7 +18,6 @@ OWNERSHIP_DIR = os.path.join(SHARED_DIR, "ownership")
 
 LISTINGS_PATH = os.path.join(MARKET_DIR, "listings.jsonl")
 TRANSACTIONS_PATH = os.path.join(MARKET_DIR, "transactions.jsonl")
-STATE_PATH = os.path.join(SHARED_DIR, "state.json")
 
 
 def _load_listings() -> list:
@@ -37,80 +38,86 @@ def _save_listings(listings: list):
             f.write(json.dumps(item) + "\n")
 
 
-def _ensure_player_state(state: dict, player: str):
-    if player not in state["players"]:
-        state["players"][player] = {
-            "energy": 100.0,
-            "experiment_score": 0.0,
-            "knowledge_score": 0.0,
-            "market_profit": 0.0,
-            "total_score": 0.0,
-        }
-
-
 def list_report(player: str, report_id: int, price: float) -> dict:
     """
-    List a report for sale. Player must own it.
+    List a report for sale. Only the report's CREATOR can list it.
+    Listings are permanent (never deactivate).
     Returns {"ok": bool, "message": str}
     """
-    ownership_path = os.path.join(OWNERSHIP_DIR, f"{player}.json")
-    if not os.path.exists(ownership_path):
-        return {"ok": False, "message": "Player has no ownership record."}
-    with open(ownership_path, "r") as f:
-        owned = json.load(f)
-    if report_id not in owned:
-        return {"ok": False, "message": "Player does not own this report."}
-
     report_path = os.path.join(REPORTS_DIR, f"report_{report_id}.json")
     if not os.path.exists(report_path):
         return {"ok": False, "message": "Report file missing."}
 
+    with open(report_path, "r") as f:
+        report = json.load(f)
+
+    if report.get("creator") != player:
+        return {"ok": False, "message": "Only the report creator can list it for sale."}
+
     listings = _load_listings()
-    # Deactivate any previous listings for this report by this player
+
+    # Check if already listed (any previous listing by this creator for this report)
     for item in listings:
         if item.get("report_id") == report_id and item.get("seller") == player:
-            item["active"] = False
+            # Update price and reactivate if needed
+            item["price"] = price
+            item["timestamp"] = time.time()
+            item["active"] = True
+            _save_listings(listings)
+            return {"ok": True, "message": f"Updated listing for report {report_id} to {price} energy."}
 
+    # New permanent listing
     new_listing = {
         "report_id": report_id,
         "seller": player,
         "price": price,
         "active": True,
         "timestamp": time.time(),
+        "buy_count": 0,
     }
     listings.append(new_listing)
     _save_listings(listings)
 
-    return {"ok": True, "message": f"Listed report {report_id} for {price} energy."}
+    return {"ok": True, "message": f"Listed report {report_id} for {price} energy (permanent listing)."}
 
 
 def update_price(player: str, report_id: int, price: float) -> dict:
     """
-    Update the price of an active listing.
+    Update the price of a listing. Only the original creator can do this.
     Returns {"ok": bool, "message": str}
     """
     listings = _load_listings()
     found = False
     for item in listings:
-        if item.get("report_id") == report_id and item.get("seller") == player and item.get("active"):
+        if item.get("report_id") == report_id and item.get("seller") == player:
             item["price"] = price
             item["timestamp"] = time.time()
             found = True
             break
     if not found:
-        return {"ok": False, "message": "No active listing found for this report by this player."}
+        return {"ok": False, "message": "No listing found for this report by you."}
     _save_listings(listings)
     return {"ok": True, "message": f"Updated price of report {report_id} to {price}."}
 
 
 def buy_report(state: dict, buyer: str, report_id: int) -> dict:
     """
-    Buy a copy of a listed report.
-    Buyer pays energy, seller gains energy.
+    Buy read-access to a listed report.
+    - Buyer pays energy, seller (creator) gains energy.
+    - Buyer gains read access (added to ownership/<buyer>.json).
+    - Buyer CANNOT resell the report; only the creator can list it.
+    - Listing stays active forever; buy_count increments.
     Modifies state in place.
     Returns {"ok": bool, "message": str}
     """
-    _ensure_player_state(state, buyer)
+    if buyer not in state["players"]:
+        state["players"][buyer] = {
+            "energy": 100.0,
+            "experiment_score": 0.0,
+            "knowledge_score": 0.0,
+            "market_profit": 0.0,
+            "total_score": 0.0,
+        }
 
     listings = _load_listings()
     listing = None
@@ -132,7 +139,14 @@ def buy_report(state: dict, buyer: str, report_id: int) -> dict:
 
     # Transfer energy
     state["players"][buyer]["energy"] -= price
-    _ensure_player_state(state, seller)
+    if seller not in state["players"]:
+        state["players"][seller] = {
+            "energy": 100.0,
+            "experiment_score": 0.0,
+            "knowledge_score": 0.0,
+            "market_profit": 0.0,
+            "total_score": 0.0,
+        }
     state["players"][seller]["energy"] += price
     state["players"][seller]["market_profit"] += price
     # Update total scores after profit change
@@ -140,7 +154,7 @@ def buy_report(state: dict, buyer: str, report_id: int) -> dict:
         pl = state["players"][p]
         pl["total_score"] = pl["experiment_score"] + pl["market_profit"] + pl["knowledge_score"]
 
-    # Grant ownership to buyer
+    # Grant ownership (read access) to buyer
     buyer_own_path = os.path.join(OWNERSHIP_DIR, f"{buyer}.json")
     buyer_owned = []
     if os.path.exists(buyer_own_path):
@@ -150,6 +164,10 @@ def buy_report(state: dict, buyer: str, report_id: int) -> dict:
         buyer_owned.append(report_id)
     with open(buyer_own_path, "w") as f:
         json.dump(buyer_owned, f, indent=2)
+
+    # Increment buy_count on the listing
+    listing["buy_count"] = listing.get("buy_count", 0) + 1
+    _save_listings(listings)
 
     # Log transaction
     transaction = {
@@ -162,4 +180,4 @@ def buy_report(state: dict, buyer: str, report_id: int) -> dict:
     with open(TRANSACTIONS_PATH, "a") as f:
         f.write(json.dumps(transaction) + "\n")
 
-    return {"ok": True, "message": f"Bought report {report_id} from {seller} for {price} energy."}
+    return {"ok": True, "message": f"Bought read access to report {report_id} from {seller} for {price} energy."}

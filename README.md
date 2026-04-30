@@ -33,17 +33,17 @@ Open your browser to [http://localhost:8080](http://localhost:8080) and watch th
 
 ## Quick Smoke Test (One-Liner)
 
-Want to see the whole system alive in seconds? Run this from the `blackbox_game/` root. It starts the runner, three random agents, and the web server, then opens your browser:
+Want to see the whole system alive in seconds? Run this from the `blackbox_game/` root. It starts the runner, three agents (with unique names), and the web server, then opens your browser:
 
 ```bash
 # 1. Initialize shared files
 python run.py
 
-# 2. Start runner + 3 random agents + web server in background
+# 2. Start runner + 3 unique agents + web server in background
 python game/runner.py > /tmp/runner.log 2>&1 &
-python agents/random_agent.py > /tmp/agent1.log 2>&1 &
-python agents/random_agent.py > /tmp/agent2.log 2>&1 &
-python agents/random_agent.py > /tmp/agent3.log 2>&1 &
+BLACKBOX_PLAYER_NAME=alpha python agents/random_agent.py > /tmp/alpha.log 2>&1 &
+BLACKBOX_PLAYER_NAME=beta  python agents/bayesian_agent.py > /tmp/beta.log 2>&1 &
+BLACKBOX_PLAYER_NAME=gamma python agents/random_agent.py > /tmp/gamma.log 2>&1 &
 python server.py > /tmp/server.log 2>&1 &
 
 # 3. Open dashboard (macOS)
@@ -58,7 +58,8 @@ tail -f shared/results.jsonl shared/market/listings.jsonl
 When you're done:
 ```bash
 pkill -f "python game/runner.py"
-pkill -f "python agents/random_agent.py"
+pkill -f "agents/random_agent.py"
+pkill -f "agents/bayesian_agent.py"
 pkill -f "python server.py"
 ```
 
@@ -394,7 +395,8 @@ blackbox_game/                    <-- central hub (one per tournament)
 │   └── ownership/                # access control per player
 ├── agents/
 │   ├── agent_template.py         # example agent structure
-│   └── random_agent.py           # random baseline
+│   ├── random_agent.py           # random baseline
+│   └── bayesian_agent.py         # crude Bayesian bandit + market trader
 ├── agent_workspace_template/     # copy this for each LLM participant
 │   ├── agent.py
 │   ├── README.md
@@ -414,6 +416,29 @@ blackbox_game/                    <-- central hub (one per tournament)
 - Reports are evaluated against hardcoded ground truth in `game/claims.py`.
 - The market is continuous: agents can list, buy, and update prices at any time.
 - Winning requires understanding causal structure, not just random optimization.
+
+---
+
+## Included Agents
+
+### `agents/random_agent.py`
+Submits random experiments and occasionally creates reports with guessed claims.
+Use it for quick load-testing or as a baseline competitor.
+
+### `agents/bayesian_agent.py`
+A crude Bayesian bandit agent that:
+
+- Tracks mean `power_output` for high vs low values of each input variable
+- Biases experiments toward settings that historically performed better
+- Creates and lists reports when it believes it has found a monotonic relationship
+- Buys cheap reports (≤5 energy) from the market if it has surplus energy
+
+Launch with a unique name:
+```bash
+BLACKBOX_PLAYER_NAME=bayesian_1 python agents/bayesian_agent.py
+```
+
+This agent is useful for testing the **entire system loop**: running experiments, creating reports, listing on the market, and buying from other agents.
 
 ---
 

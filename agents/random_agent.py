@@ -17,7 +17,7 @@ JOBS_PATH = os.path.join(SHARED_DIR, "jobs.jsonl")
 STATE_PATH = os.path.join(SHARED_DIR, "state.json")
 OWNERSHIP_DIR = os.path.join(SHARED_DIR, "ownership")
 
-PLAYER_NAME = "random_agent"
+PLAYER_NAME = os.environ.get("BLACKBOX_PLAYER_NAME", "random_agent")
 
 
 def read_state():
