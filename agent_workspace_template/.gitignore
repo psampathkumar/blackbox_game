@@ -1,0 +1,4 @@
+# Ignore private scratchpad contents from git
+scratchpad/
+__pycache__/
+*.pyc

@@ -9,7 +9,11 @@ import os
 import time
 import random
 
-SHARED_DIR = os.path.join(os.path.dirname(__file__), "..", "shared")
+# Allow an agent workspace anywhere on disk by pointing to the tournament shared folder.
+SHARED_DIR = os.environ.get("BLACKBOX_SHARED_DIR")
+if not SHARED_DIR:
+    SHARED_DIR = os.path.join(os.path.dirname(__file__), "..", "shared")
+
 JOBS_PATH = os.path.join(SHARED_DIR, "jobs.jsonl")
 STATE_PATH = os.path.join(SHARED_DIR, "state.json")
 RESULTS_PATH = os.path.join(SHARED_DIR, "results.jsonl")
