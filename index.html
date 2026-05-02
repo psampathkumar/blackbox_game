@@ -76,17 +76,34 @@
     .stat-label { color: var(--muted); }
     .bar-bg { background: rgba(255,255,255,0.06); height: 8px; border-radius: 4px; margin-top: 6px; }
     .bar-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width 0.4s ease; }
-    .row-valid { color: var(--green); }
-    .row-invalid { color: var(--red); }
     .footer { text-align: center; color: var(--muted); font-size: 0.82rem; margin-top: 10px; }
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: var(--panel); }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
-    .collapsible-content { display: none; margin-top: 8px; }
-    .collapsible-toggle { cursor: pointer; color: var(--accent); font-size: 0.85rem; margin-top: 8px; display: inline-block; }
-    .collapsible-toggle:hover { text-decoration: underline; }
-    .claim-tag { display: inline-block; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin: 2px; background: rgba(56,189,248,0.15); color: var(--accent); }
+    .report-md {
+      font-size: 0.85rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      max-height: 280px;
+      overflow-y: auto;
+      padding: 10px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+    .report-md pre {
+      background: rgba(0,0,0,0.3);
+      padding: 8px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    .report-md code {
+      background: rgba(0,0,0,0.3);
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+    }
   </style>
 </head>
 <body>
@@ -135,9 +152,9 @@
       <div class="scroll" id="jobs-container"><p class="empty">No pending jobs.</p></div>
     </div>
 
-    <!-- Theories / Reports in Market -->
+    <!-- Reports in the Market -->
     <div class="panel" style="grid-column: 1 / -1;">
-      <h2>📜 Theories & Reports in the Market</h2>
+      <h2>📜 Reports in the Market</h2>
       <div id="reports-container"><p class="empty">No reports yet.</p></div>
     </div>
 
@@ -155,13 +172,17 @@
 
   <script>
     // ─── CONFIG ──────────────────────────────────────────────
-    // If you open index.html directly on the same machine as the game,
-    // use empty string (relative). If the files are served elsewhere,
-    // set this to the base URL, e.g., "http://localhost:8000/shared"
     const fetchBase = "./shared";
     const REFRESH_MS = 2000;
 
     // ─── HELPERS ─────────────────────────────────────────────
+    async function fetchText(path) {
+      try {
+        const res = await fetch(path, { cache: "no-store" });
+        if (!res.ok) return null;
+        return await res.text();
+      } catch (e) { return null; }
+    }
     async function fetchJsonl(path) {
       try {
         const res = await fetch(path, { cache: "no-store" });
@@ -195,7 +216,7 @@
       if (!names.length) { container.innerHTML = '<p class="empty">No players yet.</p>'; return; }
       const maxScore = Math.max(...names.map(n => players[n].total_score || 0), 0.001);
       let html = `<table>
-        <thead><tr><th>Rank</th><th>Agent</th><th class="right">Energy</th><th class="right">Exp Score</th><th class="right">Market Profit</th><th class="right">Know Score</th><th class="right">Total</th></tr></thead>
+        <thead><tr><th>Rank</th><th>Agent</th><th class="right">Energy</th><th class="right">Exp Score</th><th class="right">Market Profit</th><th class="right">Total</th></tr></thead>
         <tbody>`;
       let idx = 1;
       for (const name of names.sort((a, b) => (players[b].total_score || 0) - (players[a].total_score || 0))) {
@@ -207,10 +228,9 @@
           <td class="right mono">${fmtNum(p.energy, 1)}</td>
           <td class="right mono">${fmtNum(p.experiment_score, 2)}</td>
           <td class="right mono">${fmtNum(p.market_profit, 2)}</td>
-          <td class="right mono">${fmtNum(p.knowledge_score, 2)}</td>
           <td class="right mono"><strong>${fmtNum(p.total_score, 2)}</strong></td>
         </tr>
-        <tr><td colspan="7" style="padding:0;border:none;"><div class="bar-bg"><div class="bar-fill" style="width:${pct.toFixed(1)}%;"></div></div></td></tr>`;
+        <tr><td colspan="6" style="padding:0;border:none;"><div class="bar-bg"><div class="bar-fill" style="width:${pct.toFixed(1)}%;"></div></div></td></tr>`;
       }
       html += "</tbody></table>";
       container.innerHTML = html;
@@ -300,37 +320,18 @@
       container.innerHTML = html;
     }
 
-    // Evaluate claims using the ground truth logic embedded here.
-    // This mirrors game/claims.py TRUE_RELATIONS for client-side validation display.
-    const TRUE_RELATIONS = {
-      interaction: [
-        ["P","T","positive"],["P","T","sinusoidal"],["VA","VB","positive"],
-        ["VB","VC","negative"],["VA","VC","positive"],["F","T","positive"],["VB","C","negative"]
-      ],
-      monotonic: [
-        ["P","power_output","positive"],["VA","valve_term","positive"],["VB","valve_term","positive"],
-        ["VC","valve_term","positive"],["T","heat_loss","positive"],["L","heat_loss","positive"],["C","vibration","negative"]
-      ],
-      threshold: [
-        ["T","power_output",0.3,0.7],["tau","power_output",0.2,0.4],["tau","power_output",0.7,0.9],
-        ["L","power_output",0.0,0.3],["L","power_output",0.8,1.0],["C","power_output",0.4,0.7]
-      ],
-      independence: [
-        ["P","heat_loss"],["F","heat_loss"],["C","heat_loss"]
-      ]
-    };
-    function checkClaim(c) {
-      const t = c.type;
-      if (t === "interaction") {
-        for (const [v1,v2,d] of TRUE_RELATIONS.interaction) if ((v1===c.var1&&v2===c.var2)||(v1===c.var2&&v2===c.var1)) return d===c.direction;
-      } else if (t === "monotonic") {
-        for (const [v,tr,d] of TRUE_RELATIONS.monotonic) if (v===c.var && tr===c.target) return d===c.direction;
-      } else if (t === "threshold") {
-        for (const [v,tr,l,h] of TRUE_RELATIONS.threshold) if (v===c.var && tr===c.target && l===c.low && h===c.high) return true;
-      } else if (t === "independence") {
-        for (const [v,tr] of TRUE_RELATIONS.independence) if (v===c.var && tr===c.target) return true;
-      }
-      return false;
+    function renderMarkdown(text) {
+      // Very basic markdown to HTML: headers, bold, code blocks, inline code, paragraphs
+      let html = escapeHtml(text);
+      html = html.replace(/^### (.*$)/gim, '<h3 style="color:var(--accent);font-size:1rem;margin-top:12px;">$1</h3>');
+      html = html.replace(/^## (.*$)/gim, '<h2 style="color:var(--accent);font-size:1.1rem;margin-top:16px;">$1</h2>');
+      html = html.replace(/^# (.*$)/gim, '<h1 style="color:var(--accent);font-size:1.3rem;margin-top:20px;">$1</h1>');
+      html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      html = html.replace(/```(.*?)```/gs, '<pre style="background:rgba(0,0,0,0.3);padding:8px;border-radius:4px;overflow-x:auto;"><code>$1</code></pre>');
+      html = html.replace(/\n/g, '<br>');
+      return html;
     }
 
     async function renderReports(listings, transactions) {
@@ -342,41 +343,31 @@
 
       const reports = [];
       for (const rid of reportIds) {
-        const r = await fetchJson(`${fetchBase}/reports/report_${rid}.json`);
-        if (r) reports.push(r);
+        const meta = await fetchJson(`${fetchBase}/reports/report_${rid}.meta.json`);
+        const body = await fetchText(`${fetchBase}/reports/report_${rid}.md`);
+        if (meta) reports.push({ id: rid, meta, body: body || "(no body)" });
       }
       if (!reports.length) { container.innerHTML = '<p class="empty">No report files available.</p>'; return; }
 
-      reports.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      reports.sort((a, b) => (b.meta.timestamp || 0) - (a.meta.timestamp || 0));
 
       let html = `<table>
-        <thead><tr><th>ID</th><th>Creator</th><th>Summary</th><th>Confidence</th><th>Claims Valid / Total</th><th>Precision</th><th>Status</th></tr></thead>
+        <thead><tr><th>ID</th><th>Creator</th><th>Buys</th><th>Listed</th></tr></thead>
         <tbody>`;
       for (const r of reports) {
-        const claims = r.claims || [];
-        let valid = 0;
-        let claimTags = "";
-        for (const c of claims) {
-          const ok = checkClaim(c);
-          if (ok) valid++;
-          claimTags += `<span class="claim-tag" style="background:${ok?'rgba(34,197,94,0.15);color:#22c55e':'rgba(239,68,68,0.15);color:#ef4444'}">${escapeHtml(c.type)} ${ok?'✔':'✘'}</span>`;
-        }
-        const precision = claims.length ? (valid / claims.length) : 0;
         const isListed = listings.some(l => l.report_id === r.id && l.active);
-        const soldCount = transactions.filter(t => t.report_id === r.id).length;
+        const bought = transactions.filter(t => t.report_id === r.id).length;
         html += `<tr>
           <td class="mono">${r.id}</td>
-          <td>${escapeHtml(r.creator)}</td>
-          <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.summary||'')}">${escapeHtml(r.summary || "—")}</td>
-          <td class="center mono">${fmtNum(r.confidence, 2)}</td>
-          <td class="center mono">${valid} / ${claims.length}</td>
-          <td class="center mono" style="color:${precision>=0.8?'var(--green)':precision>=0.5?'var(--warn)':'var(--red)'}">${fmtNum(precision, 2)}</td>
+          <td>${escapeHtml(r.meta.creator)}</td>
+          <td class="center">${bought}</td>
           <td class="center">
             ${isListed ? '<span class="badge badge-valid">Listed</span>' : '<span class="badge badge-invalid">Not Listed</span>'}
-            ${soldCount ? `<span style="font-size:0.75rem;color:var(--muted);">bought ${soldCount}x</span>` : ""}
           </td>
         </tr>
-        <tr><td colspan="7" style="border:none;padding-top:2px;padding-bottom:10px;">${claimTags}</td></tr>`;
+        <tr><td colspan="4" style="border:none;padding-top:2px;padding-bottom:14px;">
+          <div class="report-md">${renderMarkdown(r.body)}</div>
+        </td></tr>`;
       }
       html += "</tbody></table>";
       container.innerHTML = html;
@@ -419,30 +410,26 @@
     setInterval(tick, REFRESH_MS);
 
     // ─── SCORE CHART ─────────────────────────────────────────
-    const scoreSeries = {}; // agent -> [ {tick, total, experiment, knowledge, market, energy} ]
-    const MAX_HISTORY_POINTS = 120; // ~4 minutes at 1 tick/sec
+    const scoreSeries = {};
+    const MAX_HISTORY_POINTS = 120;
 
     async function loadScoreHistory() {
-      // Merge live state into series
       const state = await fetchJson(`${fetchBase}/state.json`);
       const players = state?.players || {};
       const tickVal = state?.tick || 0;
       for (const [name, stats] of Object.entries(players)) {
         if (!scoreSeries[name]) scoreSeries[name] = [];
         const s = scoreSeries[name];
-        // avoid duplicate ticks
         if (s.length && s[s.length - 1].tick === tickVal) continue;
         s.push({
           tick: tickVal,
           total: stats.total_score || 0,
           experiment: stats.experiment_score || 0,
-          knowledge: stats.knowledge_score || 0,
           market: stats.market_profit || 0,
           energy: stats.energy || 0,
         });
         if (s.length > MAX_HISTORY_POINTS) s.shift();
       }
-      // Also absorb historic snapshots from score_history.jsonl (useful on page load)
       const historic = await fetchJsonl(`${fetchBase}/score_history.jsonl`);
       historic.forEach(h => {
         const t = h.tick || 0;
@@ -451,7 +438,7 @@
           const s = scoreSeries[name];
           if (s.length && s[s.length - 1].tick === t) continue;
           s.push({ tick: t, total: stats.total_score || 0, experiment: stats.experiment_score || 0,
-            knowledge: stats.knowledge_score || 0, market: stats.market_profit || 0, energy: stats.energy || 0 });
+            market: stats.market_profit || 0, energy: stats.energy || 0 });
           if (s.length > MAX_HISTORY_POINTS) s.shift();
         }
       });
@@ -473,10 +460,8 @@
         return;
       }
 
-      // Which metric? default total_score
       let metric = window._chartMetric || "total";
 
-      // Collect all values to find min/max
       let allVals = [];
       for (const s of Object.values(scoreSeries)) {
         for (const p of s) allVals.push(p[metric]);
@@ -486,9 +471,7 @@
       let maxV = Math.max(...allVals);
       if (minV === maxV) { minV -= 1; maxV += 1; }
       const yScale = v => pad.top + H - ((v - minV) / (maxV - minV)) * H;
-      const xScale = v => pad.left + ((v) * (W / Math.max(W,1)));
 
-      // Determine global x range
       let minTick = Infinity, maxTick = -Infinity;
       for (const s of Object.values(scoreSeries)) {
         if (!s.length) continue;
@@ -502,7 +485,6 @@
       const getColor = (idx) => colorPalette[idx % colorPalette.length];
 
       let html = '';
-      // Grid lines
       for (let i=0;i<=5;i++) {
         const y = pad.top + (H * i / 5);
         const val = maxV - (maxV - minV) * (i / 5);
@@ -515,12 +497,10 @@
         html += `<text x="${x}" y="${pad.top+H+16}" text-anchor="middle" fill="var(--muted)" font-size="11">t=${Math.round(minTick + (maxTick-minTick)*(i/4))}</text>`;
       }
 
-      // Build hidden agents set
       if (!window._hiddenAgents) window._hiddenAgents = new Set();
       let legendHtml = '';
       const metrics = [
-        {k:"total",label:"Total"},{k:"experiment",label:"Experiment"},{k:"knowledge",label:"Knowledge"},
-        {k:"market",label:"Market"},{k:"energy",label:"Energy"}
+        {k:"total",label:"Total"},{k:"experiment",label:"Experiment"},{k:"market",label:"Market"},{k:"energy",label:"Energy"}
       ];
       legendHtml += `<span style="color:var(--muted);font-size:0.85rem;margin-right:8px;">Metric:</span>`;
       for (const m of metrics) {
@@ -534,7 +514,6 @@
       });
       legend.innerHTML = legendHtml;
 
-      // Draw lines
       names.forEach((name, idx) => {
         if (window._hiddenAgents.has(name)) return;
         const s = scoreSeries[name];
@@ -544,19 +523,16 @@
           d += ` L${xNorm(s[i].tick)} ${yScale(s[i][metric])}`;
         }
         html += `<path d="${d}" fill="none" stroke="${getColor(idx)}" stroke-width="2" opacity="0.9"/>`;
-        // Draw latest dot
         const last = s[s.length-1];
         html += `<circle cx="${xNorm(last.tick)}" cy="${yScale(last[metric])}" r="4" fill="${getColor(idx)}" stroke="var(--bg)" stroke-width="2"/>`;
       });
 
-      // Axis labels
       html += `<text x="${pad.left+W/2}" y="${height-4}" text-anchor="middle" fill="var(--muted)" font-size="12">Tick</text>`;
       html += `<text x="12" y="${pad.top+H/2}" text-anchor="middle" fill="var(--muted)" font-size="12" transform="rotate(-90 12 ${pad.top+H/2})">Score</text>`;
 
       svg.innerHTML = html;
     }
 
-    // Hook chart into main loop
     setInterval(async () => {
       await loadScoreHistory();
       renderScoreChart();

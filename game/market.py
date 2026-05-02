@@ -44,14 +44,14 @@ def list_report(player: str, report_id: int, price: float) -> dict:
     Listings are permanent (never deactivate).
     Returns {"ok": bool, "message": str}
     """
-    report_path = os.path.join(REPORTS_DIR, f"report_{report_id}.json")
-    if not os.path.exists(report_path):
-        return {"ok": False, "message": "Report file missing."}
+    meta_path = os.path.join(REPORTS_DIR, f"report_{report_id}.meta.json")
+    if not os.path.exists(meta_path):
+        return {"ok": False, "message": "Report metadata missing."}
 
-    with open(report_path, "r") as f:
-        report = json.load(f)
+    with open(meta_path, "r") as f:
+        meta = json.load(f)
 
-    if report.get("creator") != player:
+    if meta.get("creator") != player:
         return {"ok": False, "message": "Only the report creator can list it for sale."}
 
     listings = _load_listings()
@@ -114,7 +114,6 @@ def buy_report(state: dict, buyer: str, report_id: int) -> dict:
         state["players"][buyer] = {
             "energy": 100.0,
             "experiment_score": 0.0,
-            "knowledge_score": 0.0,
             "market_profit": 0.0,
             "total_score": 0.0,
         }
@@ -143,7 +142,6 @@ def buy_report(state: dict, buyer: str, report_id: int) -> dict:
         state["players"][seller] = {
             "energy": 100.0,
             "experiment_score": 0.0,
-            "knowledge_score": 0.0,
             "market_profit": 0.0,
             "total_score": 0.0,
         }
@@ -152,7 +150,7 @@ def buy_report(state: dict, buyer: str, report_id: int) -> dict:
     # Update total scores after profit change
     for p in state["players"]:
         pl = state["players"][p]
-        pl["total_score"] = pl["experiment_score"] + pl["market_profit"] + pl["knowledge_score"]
+        pl["total_score"] = pl["experiment_score"] + pl["market_profit"]
 
     # Grant ownership (read access) to buyer
     buyer_own_path = os.path.join(OWNERSHIP_DIR, f"{buyer}.json")

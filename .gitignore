@@ -14,3 +14,5 @@ shared/market/listings.jsonl
 shared/market/transactions.jsonl
 shared/ownership/*.json
 shared/reports/*.json
+shared/reports/*.md
+shared/reports/*.meta.json

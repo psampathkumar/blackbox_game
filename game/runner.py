@@ -16,9 +16,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from game.engine_wrapper import call_engine
-from game.scoring import experiment_score, knowledge_score, update_player_scores
+from game.scoring import experiment_score, update_player_scores
 from game.market import list_report, update_price, buy_report
-from game.claims import evaluate_claim
 
 SHARED_DIR = os.path.join(os.path.dirname(__file__), "..", "shared")
 JOBS_PATH = os.path.join(SHARED_DIR, "jobs.jsonl")
@@ -58,7 +57,6 @@ def ensure_player(state: dict, player: str):
         state["players"][player] = {
             "energy": 100.0,
             "experiment_score": 0.0,
-            "knowledge_score": 0.0,
             "market_profit": 0.0,
             "total_score": 0.0,
         }
@@ -100,7 +98,6 @@ def log_score_history(state: dict):
         snapshot["players"][player] = {
             "total_score": data.get("total_score", 0.0),
             "experiment_score": data.get("experiment_score", 0.0),
-            "knowledge_score": data.get("knowledge_score", 0.0),
             "market_profit": data.get("market_profit", 0.0),
             "energy": data.get("energy", 100.0),
         }
@@ -134,7 +131,7 @@ def process_job(state: dict, job: dict) -> dict:
             }
         state["players"][player]["energy"] -= 1.0
         exp_score = experiment_score(outputs)
-        update_player_scores(state, player, exp_score, 0.0)
+        update_player_scores(state, player, exp_score)
         result = {
             "ok": True,
             "player": player,
@@ -148,13 +145,30 @@ def process_job(state: dict, job: dict) -> dict:
 
     elif jtype == "create_report":
         report = job.get("report", {})
-        # Validate report structure
         report_id = report.get("id")
         if report_id is None:
             return {"ok": False, "player": player, "type": "create_report", "message": "Missing report id."}
-        report_path = os.path.join(REPORTS_DIR, f"report_{report_id}.json")
+
+        # Report body is markdown; store as .md
+        report_path = os.path.join(REPORTS_DIR, f"report_{report_id}.md")
+        body = report.get("body", "")
+        if not body:
+            return {"ok": False, "player": player, "type": "create_report", "message": "Report body (markdown) is empty."}
         with open(report_path, "w") as f:
-            json.dump(report, f, indent=2)
+            f.write(body)
+
+        # Store metadata separately as JSON
+        meta = {
+            "id": report_id,
+            "creator": player,
+            "timestamp": report.get("timestamp", time.time()),
+            "price": report.get("price", 0.0),
+            "cited_reports": report.get("cited_reports", []),
+        }
+        meta_path = os.path.join(REPORTS_DIR, f"report_{report_id}.meta.json")
+        with open(meta_path, "w") as f:
+            json.dump(meta, f, indent=2)
+
         # Grant ownership
         own_path = os.path.join(OWNERSHIP_DIR, f"{player}.json")
         owned = []
@@ -166,16 +180,11 @@ def process_job(state: dict, job: dict) -> dict:
         with open(own_path, "w") as f:
             json.dump(owned, f, indent=2)
 
-        # Score knowledge immediately if claims present
-        k_score = knowledge_score(report)
-        update_player_scores(state, player, 0.0, k_score)
-
         return {
             "ok": True,
             "player": player,
             "type": "create_report",
             "report_id": report_id,
-            "knowledge_score": k_score,
         }
 
     elif jtype == "list_report":

@@ -43,6 +43,11 @@ def init_shared_files():
         with open(transactions_path, "w") as f:
             pass
 
+    score_history_path = os.path.join(shared, "score_history.jsonl")
+    if not os.path.exists(score_history_path):
+        with open(score_history_path, "w") as f:
+            pass
+
     print("[run.py] Shared files initialized.")
 
 
